@@ -166,10 +166,146 @@ func (i *Instances) WriteHCL(w io.Writer) error {
 }
 
 //**************** VPC ****************
-// https://docs.aws.amazon.com/cli/latest/reference/ec2/describe-vpc-attribute.html
-// func (c *EC2) DescribeVpcAttribute(input *DescribeVpcAttributeInput) (*DescribeVpcAttributeOutput, error)
+type VPC struct {
+	// describe-vpcs
+	CIDRBlock                    *string
+	InstanceTenancy              *string
+	Tags                         *Tags
+	VPCId                        *string
+	AssignGeneratedIPv6CIDRBlock *bool
 
-//**************** Keypair ****************
+	// describe-vpc-attribute
+	EnableDnsHostnames *bool
+	EnableDnsSupport   *bool
 
-// https://docs.aws.amazon.com/cli/latest/reference/ec2/describe-security-groups.html
-// https://docs.aws.amazon.com/cli/latest/reference/ec2/describe-subnets.html
+	// describe-vpc-classic-link
+	EnableClassicLink *bool
+
+	//describe-vpc-classic-link-dns-support
+	EnableClassicLinkDnsSupport *bool
+}
+
+type VPCs []*VPC
+
+func (c *AWSClient) setVPCAttribute(vpc *VPC, classicLink *ec2.DescribeVpcClassicLinkOutput, classicLinkDnsSupport *ec2.DescribeVpcClassicLinkDnsSupportOutput) error {
+	opt := &ec2.DescribeVpcAttributeInput{
+		VpcId: vpc.VPCId,
+	}
+
+	// EnableDnsHostnames
+	opt = opt.SetAttribute("enableDnsHostnames")
+	output, err := c.ec2conn.DescribeVpcAttribute(opt)
+	if err != nil {
+		return err
+	}
+	vpc.EnableDnsHostnames = output.EnableDnsHostnames.Value
+
+	// EnableDnsSupport
+	opt = opt.SetAttribute("enableDnsSupport")
+	output, err = c.ec2conn.DescribeVpcAttribute(opt)
+	if err != nil {
+		return err
+	}
+	vpc.EnableDnsSupport = output.EnableDnsSupport.Value
+
+	// EnableClassicLink
+	for k, _ := range classicLink.Vpcs {
+		if aws.StringValue(classicLink.Vpcs[k].VpcId) == aws.StringValue(vpc.VPCId) {
+			vpc.EnableClassicLink = classicLink.Vpcs[k].ClassicLinkEnabled
+			break
+		}
+	}
+
+	//EnableClassicLinkDnsSupport
+	for _, v := range classicLinkDnsSupport.Vpcs {
+		if aws.StringValue(v.VpcId) == aws.StringValue(vpc.VPCId) {
+			vpc.EnableClassicLinkDnsSupport = v.ClassicLinkDnsSupported
+			break
+		}
+	}
+
+	return nil
+}
+
+func (c *AWSClient) GetVPCs() (*VPCs, error) {
+	res := VPCs{}
+
+	basicInfo, err := c.ec2conn.DescribeVpcs(&ec2.DescribeVpcsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	classicLink, err := c.ec2conn.DescribeVpcClassicLink(&ec2.DescribeVpcClassicLinkInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	classicLinkDnsSupport, err := c.ec2conn.DescribeVpcClassicLinkDnsSupport(&ec2.DescribeVpcClassicLinkDnsSupportInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, v := range basicInfo.Vpcs {
+		vpc := VPC{
+			CIDRBlock:       v.CidrBlock,
+			InstanceTenancy: v.InstanceTenancy,
+			VPCId:           v.VpcId,
+			Tags:            &Tags{},
+		}
+
+		// Set Tags
+		vpc.Tags.setTags(v.Tags)
+		if len(v.Ipv6CidrBlockAssociationSet) > 0 {
+			vpc.AssignGeneratedIPv6CIDRBlock = aws.Bool(true)
+		}
+		err = c.setVPCAttribute(&vpc, classicLink, classicLinkDnsSupport)
+		if err != nil {
+			return nil, err
+		}
+
+		res = append(res, &vpc)
+	}
+
+	return &res, nil
+}
+
+func (vpcs *VPCs) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{}
+
+	tmpl := `
+	{{ if . }}
+		{{- range . }}
+	resource "aws_vpc" "{{ index .Tags "Name" }}" {
+    cidr_block = "{{ .CIDRBlock }}"
+    {{- if .InstanceTenancy }}
+    instance_tenancy = "{{ .InstanceTenancy}}"
+    {{- end}}
+    {{- if .Tags }}
+    tags {
+      {{range $k, $v := .Tags}}
+        "{{ $k }}" = "{{$v }}"
+      {{- end}}
+    }
+    {{- end }}
+    {{- if .EnableDnsHostnames }}
+    enable_dns_hostnames = {{ .EnableDnsHostnames}}
+    {{- end }}
+    {{- if .EnableDnsSupport}}
+    enable_dns_support = {{.EnableDnsSupport}}
+    {{- end}}
+    {{- if .EnableClassicLink}}
+    enable_classiclink = {{ .EnableClassicLink}}
+    {{- end}}
+    {{- if .EnableClassicLinkDnsSupport }}
+    enable_classiclink_dns_support = {{ .EnableClassicLinkDnsSupport }}
+    {{- end}}
+    {{- if .AssignGeneratedIPv6CIDRBlock }}
+    assign_generated_ipv6_cidr_block  = {{ .AssignGeneratedIPv6CIDRBlock}}
+    {{- end}}
+	}
+		{{- end}}
+	{{- end}}
+	`
+	return renderHCL(w, tmpl, funcMap, vpcs)
+
+}
