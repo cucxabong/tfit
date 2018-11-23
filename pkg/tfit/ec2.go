@@ -309,3 +309,93 @@ func (vpcs *VPCs) WriteHCL(w io.Writer) error {
 	return renderHCL(w, tmpl, funcMap, vpcs)
 
 }
+
+//**************** Subnet ****************
+// https://docs.aws.amazon.com/cli/latest/reference/ec2/describe-subnets.html
+type Subnet struct {
+	VPCId *string
+
+	Tags                        *Tags
+	MapPublicIpOnLaunch         *bool
+	CIDRBlock                   *string
+	IPv6CIDRBlock               *string
+	AvailabilityZone            *string
+	SubnetId                    *string
+	AssignIpv6AddressOnCreation *bool
+}
+
+type Subnets []*Subnet
+
+func (s *Subnet) setSubnet(src *ec2.Subnet) {
+	s.VPCId = src.VpcId
+	s.Tags = &Tags{}
+	s.Tags.setTags(src.Tags)
+	s.MapPublicIpOnLaunch = src.MapPublicIpOnLaunch
+	s.CIDRBlock = src.CidrBlock
+	s.AvailabilityZone = src.AvailabilityZone
+	s.SubnetId = src.SubnetId
+	s.AssignIpv6AddressOnCreation = src.AssignIpv6AddressOnCreation
+	if len(src.Ipv6CidrBlockAssociationSet) > 0 {
+		s.IPv6CIDRBlock = src.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock
+	}
+}
+
+func (c *AWSClient) GetSubnets() (*Subnets, error) {
+	data, err := c.ec2conn.DescribeSubnets(&ec2.DescribeSubnetsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	var output Subnets
+	for _, v := range data.Subnets {
+		tmp := &Subnet{}
+		tmp.setSubnet(v)
+		output = append(output, tmp)
+	}
+
+	return &output, nil
+}
+
+func (s *Subnets) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{}
+
+	tmpl := `
+	{{ if . }}
+		{{- range . }}
+	resource "aws_subnet" "{{ .SubnetId}}" {
+    vpc_id = "{{ .VPCId}}"
+
+    {{- if .AvailabilityZone}}
+    availability_zone = "{{ .AvailabilityZone}}"
+    {{- end }}
+
+    {{- if .CIDRBlock}}
+    cidr_block = "{{ .CIDRBlock}}"
+    {{- end }}
+
+    {{- if .IPv6CIDRBlock}}
+    ipv6_cidr_block = "{{ .IPv6CIDRBlock }}"
+    {{- end }}
+
+    {{- if .MapPublicIpOnLaunch}}
+    map_public_ip_on_launch = {{ .MapPublicIpOnLaunch }}
+    {{- end }}
+
+    {{- if .AssignIpv6AddressOnCreation}}
+    assign_ipv6_address_on_creation = {{ .AssignIpv6AddressOnCreation}}
+    {{- end}}
+
+    {{- if .Tags}}
+    tags {
+      {{- range $k, $v := .Tags}}
+      "{{ $k }}" = "{{ $v }}"
+      {{- end}}
+    }
+    {{- end}}
+
+	}
+		{{- end}}
+	{{- end}}
+	`
+	return renderHCL(w, tmpl, funcMap, s)
+}
