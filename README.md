@@ -13,6 +13,7 @@ Inspired by [terraforming](https://terraforming.dtan4.net) & for learning purpos
 ## Supported Resources
 * EC2
   * Instances
+  * VPC
 * Auto Scaling
   * Auto Scaling Group
   * Launch Configuration
@@ -32,7 +33,7 @@ $ go get github.com/d0m0reg00dthing/tfit/cmd/tfit
 ## Usage
 ### CLI
 ```bash
-$ tfit
+$ $GOPATH/bin/tfit
 Usage:
   tfit [command]
 
@@ -57,7 +58,7 @@ Use "tfit [command] --help" for more information about a command.
 
 #### Export S3 Buckets (Output to StdOut)
 ```bash
-$ tfit --region us-east-1 --profile dev s3 buckets
+$ $GOPATH/bin/tfit--region us-east-1 --profile dev s3 buckets
 ```
 
 ```hcl
@@ -104,7 +105,7 @@ POLICY
 
 #### Export EC2 Instances & write HCL to external file
 ```bash
-tfit --region us-east-1 --profile dev --output instances.tf ec2 instances
+$ $GOPATH/bin/tfit --region us-east-1 --profile dev --output instances.tf ec2 instances
 ```
 
 ### Library

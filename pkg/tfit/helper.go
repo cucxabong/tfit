@@ -9,6 +9,8 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/aws/aws-sdk-go/service/ec2"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -19,6 +21,14 @@ import (
 type chanItem struct {
 	obj interface{}
 	err error
+}
+
+type Tags map[string]*string
+
+func (t *Tags) setTags(src []*ec2.Tag) {
+	for _, v := range src {
+		map[string]*string(*t)[*v.Key] = v.Value
+	}
 }
 
 func handleError(err error) error {
