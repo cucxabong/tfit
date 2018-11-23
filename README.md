@@ -15,6 +15,7 @@ Inspired by [terraforming](https://terraforming.dtan4.net) & for learning purpos
   * Instances
   * VPC
   * Subnet
+  * Security Group
 * Auto Scaling
   * Auto Scaling Group
   * Launch Configuration

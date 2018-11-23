@@ -71,6 +71,15 @@ func GetCredentials(c *Config) *credentials.Credentials {
 	return credentials.NewChainCredentials(providers)
 }
 
+func makeTerraformResourceName(src *string) string {
+	output := aws.StringValue(src)
+	for _, v := range "._:/" {
+		output = strings.Replace(output, string(v), "-", -1)
+	}
+
+	return output
+}
+
 func getZoneId(src *string) *string {
 	if strings.Contains(aws.StringValue(src), "/") {
 		tokens := strings.Split(aws.StringValue(src), "/")
@@ -145,7 +154,6 @@ func renderHCL(w io.Writer, Tmpl string, funcMap template.FuncMap, target interf
 	if err != nil {
 		return err
 	}
-
 	return HCLFmt(buf, w)
 }
 

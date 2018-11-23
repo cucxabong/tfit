@@ -399,3 +399,193 @@ func (s *Subnets) WriteHCL(w io.Writer) error {
 	`
 	return renderHCL(w, tmpl, funcMap, s)
 }
+
+//**************** Security Group ****************
+type SecurityGroup struct {
+	Name        *string
+	Description *string
+	GroupId     *string
+	Tags        *Tags
+	VPCId       *string
+	Ingresses   []*SecurityGroupRule
+	Egresses    []*SecurityGroupRule
+}
+
+type SecurityGroups []*SecurityGroup
+
+type SecurityGroupRule struct {
+	FromPort      *int64
+	ToPort        *int64
+	IpProtocol    *string
+	PrefixListIds []*string
+	CIDRBlocks    []*string
+	IPv6CIDRBlock []*string
+}
+
+func (sg *SecurityGroup) setSecurityGroup(src *ec2.SecurityGroup) {
+	sg.Name = src.GroupName
+	sg.Description = src.Description
+	sg.GroupId = src.GroupId
+	sg.Tags = &Tags{}
+	sg.Tags.setTags(src.Tags)
+	sg.VPCId = src.VpcId
+
+	for _, v := range src.IpPermissions {
+		var tmp SecurityGroupRule
+		tmp.setRule(v)
+		sg.Ingresses = append(sg.Ingresses, &tmp)
+	}
+
+	for _, v := range src.IpPermissionsEgress {
+		var tmp SecurityGroupRule
+		tmp.setRule(v)
+		sg.Egresses = append(sg.Egresses, &tmp)
+	}
+}
+
+func (r *SecurityGroupRule) setRule(src *ec2.IpPermission) {
+	r.FromPort = src.FromPort
+	r.ToPort = src.ToPort
+	r.IpProtocol = src.IpProtocol
+	for _, v := range src.PrefixListIds {
+		r.PrefixListIds = append(r.PrefixListIds, v.PrefixListId)
+	}
+
+	for _, v := range src.IpRanges {
+		r.CIDRBlocks = append(r.CIDRBlocks, v.CidrIp)
+	}
+
+	for _, v := range src.Ipv6Ranges {
+		r.IPv6CIDRBlock = append(r.IPv6CIDRBlock, v.CidrIpv6)
+	}
+}
+
+func (c *AWSClient) GetSecurityGroups() (*SecurityGroups, error) {
+	opt := ec2.DescribeSecurityGroupsInput{}
+	var output SecurityGroups
+
+	for {
+		data, err := c.ec2conn.DescribeSecurityGroups(&opt)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, v := range data.SecurityGroups {
+			tmp := SecurityGroup{}
+			tmp.setSecurityGroup(v)
+			output = append([]*SecurityGroup(output), &tmp)
+		}
+
+		if data.NextToken != nil {
+			opt.NextToken = data.NextToken
+		} else {
+			break
+		}
+	}
+
+	return &output, nil
+}
+
+func (sg *SecurityGroups) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{
+		"makeTerraformResourceName": makeTerraformResourceName,
+		"joinStringSlice":           joinStringSlice,
+		"StringValueSlice":          aws.StringValueSlice,
+	}
+
+	tmpl := `
+	{{ if . }}
+		{{- range . }}
+	resource "aws_security_group" "{{ makeTerraformResourceName .Name }}" {
+    name = "{{ .Name }}"
+
+    {{- if .Description }}
+    description = "{{ .Description }}"
+    {{- end}}
+
+    {{- if .VPCId}}
+    vpc_id = "{{ .VPCId }}"
+    {{- end}}
+
+    {{- if .Tags }}
+    tags {
+      {{- range $k, $v := .Tags }}
+      "{{ $k }}" = "{{ $v }}"
+      {{- end }}
+    }
+    {{- end }}
+
+    {{- if .Ingresses }}
+      {{- range $k, $v := .Ingresses }}
+      ingress {
+        {{- if $v.FromPort }}
+        from_port = "{{ $v.FromPort }}"
+        {{- else }}
+        from_port = 0
+        {{- end }}
+
+        {{- if $v.ToPort }}
+        to_port = "{{ $v.ToPort }}"
+        {{- else }}
+        to_port = 0
+        {{- end }}
+
+        protocol = "{{ $v.IpProtocol }}"
+        {{- if $v.PrefixListIds }}
+        {{- $prefixlistIds := StringValueSlice $v.PrefixListIds}}
+        prefix_list_ids = [{{ $prefixlistIds | joinStringSlice "," }}]
+        {{- end}}
+
+        {{- if $v.CIDRBlocks }}
+        {{- $cidrblocks := StringValueSlice $v.CIDRBlocks }}
+        cidr_blocks = [{{ $cidrblocks | joinStringSlice "," }}]
+        {{- end }}
+
+        {{- if $v.IPv6CIDRBlock }}
+        {{- $ipv6cidr := StringValueSlice $v.IPv6CIDRBlock }}
+        ipv6_cidr_blocks = [{{ $ipv6cidr | joinStringSlice ","}}]
+        {{- end }}
+      }
+      {{- end }}
+    {{- end}}
+
+    {{- if .Egresses }}
+      {{- range $k, $v := .Egresses }}
+      egress {
+        {{- if $v.FromPort }}
+        from_port = "{{ $v.FromPort }}"
+        {{- else }}
+        from_port = 0
+        {{- end }}
+
+        {{- if $v.ToPort }}
+        to_port = "{{ $v.ToPort }}"
+        {{- else }}
+        to_port = 0
+        {{- end }}
+
+        protocol = "{{ $v.IpProtocol }}"
+        {{- if $v.PrefixListIds }}
+        {{- $prefixlistIds := StringValueSlice $v.PrefixListIds}}
+        prefix_list_ids = [{{ $prefixlistIds | joinStringSlice "," }}]
+        {{- end}}
+
+        {{- if $v.CIDRBlocks }}
+        {{- $cidrblocks := StringValueSlice $v.CIDRBlocks }}
+        cidr_blocks = [{{ $cidrblocks | joinStringSlice "," }}]
+        {{- end }}
+
+        {{- if $v.IPv6CIDRBlock }}
+        {{- $ipv6cidr := StringValueSlice $v.IPv6CIDRBlock }}
+        ipv6_cidr_blocks = [{{ $ipv6cidr | joinStringSlice ","}}]
+        {{- end }}
+      }
+      {{- end }}
+    {{- end}}
+
+	}
+		{{- end}}
+	{{- end}}
+	`
+	return renderHCL(w, tmpl, funcMap, sg)
+}
