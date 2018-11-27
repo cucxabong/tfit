@@ -11,6 +11,9 @@ func NewCmdIAM() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdIAMPolicy())
+	cmd.AddCommand(NewCmdIAMRole())
+	cmd.AddCommand(NewCmdIAMUser())
+	cmd.AddCommand(NewCmdIAMGroup())
 
 	return cmd
 }
