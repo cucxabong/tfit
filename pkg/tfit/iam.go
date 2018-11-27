@@ -1,12 +1,15 @@
 package tfit
 
 import (
+	"fmt"
 	"io"
 	"text/template"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/iam"
 )
+
+//**************** IAM Customer Managed Policy ****************
 
 type Policy struct {
 	Description      *string
@@ -47,7 +50,6 @@ func (c *AWSClient) GetPolicyDocument(p *Policy) error {
 	return nil
 }
 
-// GetPolicies ...
 func (c *AWSClient) GetPolicies() (*Policies, error) {
 	var res Policies
 
@@ -105,12 +107,8 @@ func (c *AWSClient) GetPolicies() (*Policies, error) {
 	return &res, nil
 }
 
-// Render will render terraform format from 'Instances'
 func (p *Policies) WriteHCL(w io.Writer) error {
-	funcMap := template.FuncMap{
-		//"joinstring":       joinStringSlice,
-		//"StringValueSlice": aws.StringValueSlice,
-	}
+	funcMap := template.FuncMap{}
 
 	tmpl := `
 	{{ if . }}
@@ -131,4 +129,234 @@ EOF
 	{{- end}}
 	`
 	return renderHCL(w, tmpl, funcMap, p)
+}
+
+//**************** IAM Role ****************
+type Role struct {
+	Name                     *string
+	AssumeRolePolicyDocument *string
+	RoleId                   *string
+	Description              *string
+	Path                     *string
+	MaxSessionDuration       *int64
+	PermissionBoundaryArn    *string
+}
+
+type Roles []*Role
+
+func (c *AWSClient) ListRoles() (*Roles, error) {
+	opt := iam.ListRolesInput{}
+	var output Roles
+	for {
+		data, err := c.iamconn.ListRoles(&opt)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, v := range data.Roles {
+			tmp := Role{
+				AssumeRolePolicyDocument: v.AssumeRolePolicyDocument,
+				Description:              v.Description,
+				Path:                     v.Path,
+				MaxSessionDuration:       v.MaxSessionDuration,
+				RoleId:                   v.RoleId,
+				Name:                     v.RoleName,
+			}
+			if v.PermissionsBoundary != nil {
+				tmp.PermissionBoundaryArn = v.PermissionsBoundary.PermissionsBoundaryArn
+			}
+
+			unEscapeAssumeRole, err := unEscapeHTML(tmp.AssumeRolePolicyDocument)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			} else {
+				tmp.AssumeRolePolicyDocument = &unEscapeAssumeRole
+			}
+
+			output = append(output, &tmp)
+		}
+
+		if data.IsTruncated != nil && aws.BoolValue(data.IsTruncated) {
+			opt.Marker = data.Marker
+		} else {
+			break
+		}
+	}
+
+	return &output, nil
+}
+
+func (r *Roles) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{
+		"makeTerraformResourceName": makeTerraformResourceName,
+		"prettyJSON":                prettyJSON,
+	}
+
+	tmpl := `
+	{{ if . }}
+    {{ range . }}
+    resource "aws_iam_policy" "{{ .Name | makeTerraformResourceName }}" {
+      name = "{{ .Name }}"
+      assume_role_policy = <<EOF
+      {{ .AssumeRolePolicyDocument | prettyJSON }}
+EOF
+      {{- if .Path }}
+      path = "{{ .Path }}"
+      {{- end }}
+
+      {{- if .Description }}
+      description = "{{ .Description }}"
+      {{- end }}
+
+      {{- if .MaxSessionDuration }}
+      max_session_duration = {{.MaxSessionDuration}}
+      {{- end }}
+
+      {{- if .PermissionBoundaryArn}}
+      permissions_boundary = "{{ .PermissionBoundaryArn }}"
+      {{- end }}
+    }
+    {{- end }}
+	{{- end}}
+	`
+	return renderHCL(w, tmpl, funcMap, r)
+}
+
+//**************** IAM User ****************
+type User struct {
+	Path                   *string
+	Tags                   *Tags
+	UserId                 *string
+	UserName               *string
+	PermissionsBoundaryArn *string
+}
+
+func (u *User) setUser(src *iam.User) {
+	u.Path = src.Path
+	u.Tags = &Tags{}
+	for _, v := range src.Tags {
+		map[string]*string(*u.Tags)[*v.Key] = v.Value
+	}
+	u.UserId = src.UserId
+	u.UserName = src.UserName
+	if src.PermissionsBoundary != nil {
+		u.PermissionsBoundaryArn = src.PermissionsBoundary.PermissionsBoundaryArn
+	}
+}
+
+type Users []*User
+
+func (c *AWSClient) ListUsers() (*Users, error) {
+	opt := iam.ListUsersInput{}
+
+	var output Users
+	for {
+		data, err := c.iamconn.ListUsers(&opt)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range data.Users {
+			var u User
+			u.setUser(v)
+			output = append(output, &u)
+		}
+
+		if data.IsTruncated != nil && aws.BoolValue(data.IsTruncated) {
+			opt.Marker = data.Marker
+		} else {
+			break
+		}
+	}
+
+	return &output, nil
+}
+
+func (r *Users) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{
+		"makeTerraformResourceName": makeTerraformResourceName,
+	}
+
+	tmpl := `
+	{{ if . }}
+    {{ range . }}
+    resource "aws_iam_user" "{{ .UserName | makeTerraformResourceName }}" {
+      name = "{{ .UserName }}"
+      {{- if .Path }}
+      path = "{{ .Path }}"
+      {{- end}}
+
+      {{- if .PermissionsBoundaryArn }}
+      permissions_boundary = "{{ .PermissionsBoundaryArn }}"
+      {{- end }}
+
+      {{- if gt (len .Tags) 0 }}
+      tags {
+        {{- range $k, $v := .Tags }}
+        "{{ $k }}" = "{{ $v }}"
+        {{- end}}
+      }
+      {{- end }}
+    }
+    {{- end }}
+	{{- end}}
+	`
+	return renderHCL(w, tmpl, funcMap, r)
+}
+
+//**************** IAM Group ****************
+type IAMGroup struct {
+	Name *string
+	Id   *string
+	Path *string
+}
+
+type IAMGroups []*IAMGroup
+
+func (c *AWSClient) ListIAMGroups() (*IAMGroups, error) {
+	opt := iam.ListGroupsInput{}
+	var output IAMGroups
+	for {
+		data, err := c.iamconn.ListGroups(&opt)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, g := range data.Groups {
+			tmp := IAMGroup{
+				Name: g.GroupName,
+				Id:   g.GroupId,
+				Path: g.Path,
+			}
+			output = append(output, &tmp)
+		}
+
+		if data.IsTruncated != nil && aws.BoolValue(data.IsTruncated) {
+			opt.Marker = data.Marker
+		} else {
+			break
+		}
+	}
+
+	return &output, nil
+}
+
+func (g *IAMGroups) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{
+		"makeTerraformResourceName": makeTerraformResourceName,
+	}
+
+	tmpl := `
+	{{ if . }}
+    {{ range . }}
+    resource "aws_iam_group" "{{ .Name | makeTerraformResourceName }}" {
+      name = "{{ .Name }}"
+      {{- if .Path }}
+      path = "{{ .Path }}"
+      {{- end }}
+    }
+    {{- end }}
+	{{- end}}
+	`
+	return renderHCL(w, tmpl, funcMap, g)
 }
