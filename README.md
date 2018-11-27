@@ -24,6 +24,9 @@ Inspired by [terraforming](https://terraforming.dtan4.net) & for learning purpos
   * Resource Record Set
 * IAM
   * Policy
+  * Role
+  * User
+  * Group
 * S3
   * Bucket
 * **Updating ......**
