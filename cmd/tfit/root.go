@@ -58,6 +58,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewCmdIAM())
 	cmd.AddCommand(NewCmdS3())
 	cmd.AddCommand(NewCmdAutoScaling())
+	cmd.AddCommand(NewCmdELB())
 
 	return cmd
 }

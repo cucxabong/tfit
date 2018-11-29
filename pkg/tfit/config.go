@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -28,6 +29,7 @@ type AWSClient struct {
 	iamconn *iam.IAM
 	asconn  *autoscaling.AutoScaling
 	s3conn  *s3.S3
+	elbconn *elb.ELB
 }
 
 func (c *Config) Client() (*AWSClient, error) {
@@ -45,6 +47,7 @@ func (c *Config) Client() (*AWSClient, error) {
 
 	client.ec2conn = ec2.New(sess, aws.NewConfig().WithRegion(c.Region))
 	client.asconn = autoscaling.New(sess, aws.NewConfig().WithRegion(c.Region))
+	client.elbconn = elb.New(sess, aws.NewConfig().WithRegion(c.Region))
 
 	return &client, nil
 }

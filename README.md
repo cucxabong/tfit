@@ -29,6 +29,7 @@ Inspired by [terraforming](https://terraforming.dtan4.net) & for learning purpos
   * Group
 * S3
   * Bucket
+* ELB
 * **Updating ......**
 
 ## Installation
