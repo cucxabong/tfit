@@ -414,12 +414,13 @@ type SecurityGroup struct {
 type SecurityGroups []*SecurityGroup
 
 type SecurityGroupRule struct {
-	FromPort      *int64
-	ToPort        *int64
-	IpProtocol    *string
-	PrefixListIds []*string
-	CIDRBlocks    []*string
-	IPv6CIDRBlock []*string
+	FromPort             *int64
+	ToPort               *int64
+	IpProtocol           *string
+	PrefixListIds        []*string
+	CIDRBlocks           []*string
+	IPv6CIDRBlock        []*string
+	SourceSecurityGroups []*string
 }
 
 func (sg *SecurityGroup) setSecurityGroup(src *ec2.SecurityGroup) {
@@ -458,6 +459,11 @@ func (r *SecurityGroupRule) setRule(src *ec2.IpPermission) {
 	for _, v := range src.Ipv6Ranges {
 		r.IPv6CIDRBlock = append(r.IPv6CIDRBlock, v.CidrIpv6)
 	}
+
+	for _, v := range src.UserIdGroupPairs {
+		r.SourceSecurityGroups = append(r.SourceSecurityGroups, v.GroupId)
+	}
+
 }
 
 func (c *AWSClient) GetSecurityGroups() (*SecurityGroups, error) {
@@ -545,6 +551,11 @@ func (sg *SecurityGroups) WriteHCL(w io.Writer) error {
         {{- $ipv6cidr := StringValueSlice $v.IPv6CIDRBlock }}
         ipv6_cidr_blocks = [{{ $ipv6cidr | joinStringSlice ","}}]
         {{- end }}
+
+        {{- if $v.SourceSecurityGroups }}
+        {{- $src_secgroup := StringValueSlice $v.SourceSecurityGroups }}
+        security_groups = [{{ $src_secgroup | joinStringSlice "," }}]
+        {{- end }}
       }
       {{- end }}
     {{- end}}
@@ -569,6 +580,11 @@ func (sg *SecurityGroups) WriteHCL(w io.Writer) error {
         {{- $prefixlistIds := StringValueSlice $v.PrefixListIds}}
         prefix_list_ids = [{{ $prefixlistIds | joinStringSlice "," }}]
         {{- end}}
+
+        {{- if $v.SourceSecurityGroups }}
+        {{- $src_secgroup := StringValueSlice $v.SourceSecurityGroups }}
+        security_groups = [{{ $src_secgroup | joinStringSlice "," }}]
+        {{- end }}
 
         {{- if $v.CIDRBlocks }}
         {{- $cidrblocks := StringValueSlice $v.CIDRBlocks }}
