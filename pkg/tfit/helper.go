@@ -73,7 +73,7 @@ func GetCredentials(c *Config) *credentials.Credentials {
 
 func makeTerraformResourceName(src *string) string {
 	output := aws.StringValue(src)
-	for _, v := range "._:/" {
+	for _, v := range "._:/ " {
 		output = strings.Replace(output, string(v), "-", -1)
 	}
 
