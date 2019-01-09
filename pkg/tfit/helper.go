@@ -9,11 +9,12 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/aws/aws-sdk-go/service/ec2"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/hashicorp/hcl/hcl/parser"
 	"github.com/hashicorp/hcl/hcl/printer"
 )
@@ -29,6 +30,23 @@ func (t *Tags) setTags(src []*ec2.Tag) {
 	for _, v := range src {
 		map[string]*string(*t)[*v.Key] = v.Value
 	}
+}
+
+func (c *Config) GetAccountId() (*string, error) {
+	creds := GetCredentials(c)
+	sess, err := session.NewSession(&aws.Config{Credentials: creds})
+	if err != nil {
+		return nil, fmt.Errorf("Error creating AWS session: %s", err)
+	}
+
+	stsconn := sts.New(sess, aws.NewConfig().WithRegion(c.Region))
+
+	output, err := stsconn.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, fmt.Errorf("Error calling GetCallerIdentity: %s", err)
+	}
+
+	return output.Account, nil
 }
 
 func handleError(err error) error {

@@ -423,7 +423,7 @@ type SecurityGroupRule struct {
 	SourceSecurityGroups []*string
 }
 
-func (sg *SecurityGroup) setSecurityGroup(src *ec2.SecurityGroup) {
+func (sg *SecurityGroup) setSecurityGroup(src *ec2.SecurityGroup, AccountId *string) {
 	sg.Name = src.GroupName
 	sg.Description = src.Description
 	sg.GroupId = src.GroupId
@@ -433,18 +433,18 @@ func (sg *SecurityGroup) setSecurityGroup(src *ec2.SecurityGroup) {
 
 	for _, v := range src.IpPermissions {
 		var tmp SecurityGroupRule
-		tmp.setRule(v)
+		tmp.setRule(v, AccountId)
 		sg.Ingresses = append(sg.Ingresses, &tmp)
 	}
 
 	for _, v := range src.IpPermissionsEgress {
 		var tmp SecurityGroupRule
-		tmp.setRule(v)
+		tmp.setRule(v, AccountId)
 		sg.Egresses = append(sg.Egresses, &tmp)
 	}
 }
 
-func (r *SecurityGroupRule) setRule(src *ec2.IpPermission) {
+func (r *SecurityGroupRule) setRule(src *ec2.IpPermission, AccountId *string) {
 	r.FromPort = src.FromPort
 	r.ToPort = src.ToPort
 	r.IpProtocol = src.IpProtocol
@@ -461,12 +461,16 @@ func (r *SecurityGroupRule) setRule(src *ec2.IpPermission) {
 	}
 
 	for _, v := range src.UserIdGroupPairs {
-		r.SourceSecurityGroups = append(r.SourceSecurityGroups, v.GroupId)
+		if strings.Compare(*v.UserId, *AccountId) == 0 {
+			r.SourceSecurityGroups = append(r.SourceSecurityGroups, v.GroupId)
+		} else {
+			srcSecGroup := fmt.Sprintf("%s/%s", *v.UserId, *v.GroupId)
+			r.SourceSecurityGroups = append(r.SourceSecurityGroups, &srcSecGroup)
+		}
 	}
-
 }
 
-func (c *AWSClient) GetSecurityGroups() (*SecurityGroups, error) {
+func (c *AWSClient) GetSecurityGroups(AccountId *string) (*SecurityGroups, error) {
 	opt := ec2.DescribeSecurityGroupsInput{}
 	var output SecurityGroups
 
@@ -478,7 +482,7 @@ func (c *AWSClient) GetSecurityGroups() (*SecurityGroups, error) {
 
 		for _, v := range data.SecurityGroups {
 			tmp := SecurityGroup{}
-			tmp.setSecurityGroup(v)
+			tmp.setSecurityGroup(v, AccountId)
 			output = append([]*SecurityGroup(output), &tmp)
 		}
 

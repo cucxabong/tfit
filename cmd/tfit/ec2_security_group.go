@@ -9,7 +9,9 @@ func NewCmdEC2SecurityGroups() *cobra.Command {
 		Use:   "secgroup",
 		Short: "EC2 Security Groups",
 		Run: func(cmd *cobra.Command, args []string) {
-			sg, err := c.GetSecurityGroups()
+			AccountId, err := rootCommand.cfg.GetAccountId()
+			handleError(err)
+			sg, err := c.GetSecurityGroups(AccountId)
 			handleError(err)
 			handleError(sg.WriteHCL(w))
 		},
