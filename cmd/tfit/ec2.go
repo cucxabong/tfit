@@ -14,6 +14,7 @@ func NewCmdEC2() *cobra.Command {
 	cmd.AddCommand(NewCmdEC2SecurityGroups())
 	cmd.AddCommand(NewCmdEC2VPCs())
 	cmd.AddCommand(NewCmdEC2Subnets())
+	cmd.AddCommand(NewCmdEC2RouteTables())
 
 	return cmd
 }

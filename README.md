@@ -16,6 +16,7 @@ Inspired by [terraforming](https://terraforming.dtan4.net) & for learning purpos
   * VPC
   * Subnet
   * Security Group
+  * Route & Route Table
 * Auto Scaling
   * Auto Scaling Group
   * Launch Configuration

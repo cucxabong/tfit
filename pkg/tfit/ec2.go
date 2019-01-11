@@ -609,3 +609,115 @@ func (sg *SecurityGroups) WriteHCL(w io.Writer) error {
 	`
 	return renderHCL(w, tmpl, funcMap, sg)
 }
+
+//**************** BEGIN Route Table ****************
+
+type Route struct {
+	CIDRBlock                   *string
+	IPv6CIDRBlock               *string
+	VpcPeeringConnectionId      *string
+	TransitGatewayId            *string
+	NetworkInterfaceId          *string
+	NatGatewayId                *string
+	InstanceId                  *string
+	GatewayId                   *string
+	EgressOnlyInternetGatewayId *string
+}
+
+func (r *Route) setRoute(src *ec2.Route) *Route {
+	r.CIDRBlock = src.DestinationCidrBlock
+	r.IPv6CIDRBlock = src.DestinationIpv6CidrBlock
+	r.VpcPeeringConnectionId = src.VpcPeeringConnectionId
+	r.TransitGatewayId = src.TransitGatewayId
+	r.NetworkInterfaceId = src.NetworkInterfaceId
+	r.NatGatewayId = src.NatGatewayId
+	r.InstanceId = src.InstanceId
+	r.GatewayId = src.GatewayId
+	r.EgressOnlyInternetGatewayId = src.EgressOnlyInternetGatewayId
+
+	return r
+}
+
+type RouteTable struct {
+	VpcId           *string
+	Tags            []*ResourceTag
+	Id              *string
+	Routes          []*Route
+	PropagatingVgws []*string
+}
+
+func (r *RouteTable) setRoutes(src []*ec2.Route) *RouteTable {
+	for _, v := range src {
+		tmp := Route{}
+		r.Routes = append(r.Routes, tmp.setRoute(v))
+	}
+
+	return r
+}
+
+func (r *RouteTable) setPropagatingVgws(src []*ec2.PropagatingVgw) *RouteTable {
+	for _, prgw := range src {
+		r.PropagatingVgws = append(r.PropagatingVgws, prgw.GatewayId)
+	}
+
+	return r
+}
+
+func (r *RouteTable) setTags(src []*ec2.Tag) *RouteTable {
+	for _, v := range src {
+		tmp := ResourceTag{
+			Key:   v.Key,
+			Value: v.Value,
+		}
+
+		r.Tags = append(r.Tags, &tmp)
+	}
+
+	return r
+}
+
+func (r *RouteTable) setRouteTable(src *ec2.RouteTable) *RouteTable {
+	r.Id = src.RouteTableId
+	r.VpcId = src.VpcId
+	r = r.setPropagatingVgws(src.PropagatingVgws)
+	r = r.setRoutes(src.Routes)
+	r = r.setTags(src.Tags)
+
+	return r
+}
+
+type RouteTables []*RouteTable
+
+func (c *AWSClient) GetRouteTables() (*RouteTables, error) {
+	opt := ec2.DescribeRouteTablesInput{}
+	res := RouteTables{}
+	for {
+		output, err := c.ec2conn.DescribeRouteTables(&opt)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, rtb := range output.RouteTables {
+			rtbTemp := &RouteTable{}
+			res = append(res, rtbTemp.setRouteTable(rtb))
+		}
+
+		if output.NextToken == nil {
+			break
+		} else {
+			opt.NextToken = output.NextToken
+		}
+	}
+
+	return &res, nil
+}
+
+func (rtb *RouteTables) WriteHCL(w io.Writer) error {
+	funcMap := template.FuncMap{
+		"makeTerraformList": makeTerraformList,
+	}
+
+	return renderHCL(w, EC2_ROUTE_TABLE, funcMap, rtb)
+}
+
+//**************** END Route Table ****************

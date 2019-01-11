@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -18,6 +19,11 @@ import (
 	"github.com/hashicorp/hcl/hcl/parser"
 	"github.com/hashicorp/hcl/hcl/printer"
 )
+
+type ResourceTag struct {
+	Key   *string
+	Value *string
+}
 
 type chanItem struct {
 	obj interface{}
@@ -116,6 +122,15 @@ func quote(src string) string {
 	return fmt.Sprintf("\"%s\"", src)
 }
 
+func makeTerraformList(src []*string) string {
+	var tmp []string
+	for _, v := range src {
+		tmp = append(tmp, strconv.Quote(*v))
+	}
+
+	return strings.Join(tmp, ",")
+}
+
 func joinStringSlice(sep string, src []string) string {
 	for k, v := range src {
 		src[k] = quote(v)
@@ -160,6 +175,16 @@ func unEscapeHTML(src *string) (string, error) {
 	return url.QueryUnescape(aws.StringValue(src))
 }
 
+func doHCLRendering(w io.Writer, t *template.Template, target interface{}) error {
+	buf := bytes.NewBuffer(nil)
+	err := t.Execute(buf, target)
+	if err != nil {
+		return err
+	}
+
+	return HCLFmt(buf, w)
+}
+
 func renderHCL(w io.Writer, Tmpl string, funcMap template.FuncMap, target interface{}) error {
 	t := template.New("").Funcs(funcMap)
 	t, err := t.Parse(Tmpl)
@@ -167,12 +192,7 @@ func renderHCL(w io.Writer, Tmpl string, funcMap template.FuncMap, target interf
 		return err
 	}
 
-	buf := bytes.NewBuffer(nil)
-	err = t.Execute(buf, target)
-	if err != nil {
-		return err
-	}
-	return HCLFmt(buf, w)
+	return doHCLRendering(w, t, target)
 }
 
 func renderTerraformImportCmd(Output io.Writer, Tmpl string, funcMap template.FuncMap, target interface{}) error {
